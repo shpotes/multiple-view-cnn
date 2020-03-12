@@ -11,17 +11,21 @@ import utils
 class SingleView(pl.LightningModule):
     def __init__(self, hparams):
         super(SingleView, self).__init__()
-        self.hparams = hparams
+        self.hparams = hparams['train']
+        self.net = utils.parser.build_model(hparams['net'])
 
     def forward(self, x):
-        return x
+        return self.net(x)
 
     def training_step(self, batch, _):
         images, target = batch
         output = self.forward(images)
         loss_val = F.cross_entropy(output, target)
+        acc = utils.metrics.accuracy(output, target)
 
-        acc = utils.accuracy(output, target)
+        if self.trainer.use_dp:
+            loss_val = loss_val.unsqueeze(0)
+            acc = acc.unsqueeze(0)
 
         tqdm_dict = {'train_loss': loss_val}
         output = OrderedDict({
@@ -37,7 +41,11 @@ class SingleView(pl.LightningModule):
         images, target = batch
         output = self.forward(images)
         loss_val = F.cross_entropy(output, target)
-        acc = utils.accuracy(output, target)
+        acc = utils.metrics.accuracy(output, target)
+
+        if self.trainer.use_dp:
+            loss_val = loss_val.unsqueeze(0)
+            acc = acc.unsqueeze(0)
 
         output = OrderedDict({
             'val_loss': loss_val,
@@ -54,6 +62,8 @@ class SingleView(pl.LightningModule):
 
             for output in outputs:
                 metric_value = output[metric_name]
+                if self.trainer.use_dp:
+                    metric_value = torch.mean(metric_value)
                 metric_total += metric_value
 
             tqdm_dict[metric_name] = metric_total / len(outputs)
